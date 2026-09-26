@@ -25,9 +25,11 @@ params:
   - name: maxacpower
   - name: maxchargepower
     default: 800
+    required: true
     usages: ["battery"]
   - name: maxdischargepower
     default: 800
+    required: true
     usages: ["battery"]
   - preset: battery-params
 render: |
