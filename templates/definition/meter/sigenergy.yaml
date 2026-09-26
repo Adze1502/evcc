@@ -12,8 +12,8 @@ products:
 capabilities: ["battery-control"]
 requirements:
   description:
-    de: Modbus TCP muss in der Konfigurations-App aktiviert werden. Für optimale Ergebnisse sollte das Sigenergy-System im Eigenverbrauchsmodus betrieben werden. Wenn Sie stattdessen den Sigen KI-Modus verwenden möchten, deaktivieren Sie die Option Batterie als Ladepuffer verwenden, aktivieren Sie Entladung der Hausbatterie im Schnell-Modus verhindern und stellen Sie Sonnenüberschuss direkt an die Ladestationen leiten ein.
-    en: Modbus TCP must be enabled in the configuration app. For best results the Sigenergy system should be in Self-Consumption mode. If you wish to use the Sigen AI Mode instead, disable option battery as charging buffer, enable prevent home battery discharge in fast mode and set solar surplus goes straight to the charging points.
+    de: Modbus TCP muss in der Konfigurations-App aktiviert werden.
+    en: Modbus TCP must be enabled in the configuration app. Set Remote EMS mode as operational mode.
 params:
   - name: usage
     choice: ["grid", "pv", "battery"]
@@ -23,6 +23,12 @@ params:
   - name: id
     default: 1
   - name: maxacpower
+  - name: maxchargepower
+    default: 800
+    usages: ["battery"]
+  - name: maxdischargepower
+    default: 800
+    usages: ["battery"]
   - preset: battery-params
 render: |
   type: custom
@@ -118,17 +124,121 @@ render: |
       type: holding
       decode: uint16
     scale: 0.1
-  limitsoc:
-    source: convert
-    convert: float2int
-    set:
-      source: modbus
-      uri: {{ joinHostPort .host .port }}
-      id: 247
-      register:
-        address: 40048 # Discharge Cut-Off SoC
-        type: writeholding
-        decode: uint16
-      scale: 10
+  batterymode:
+    source: switch
+    switch:
+      # EVCC mode 1: normal
+      - case: 1
+        set:
+          source: sequence
+          set:
+            # Maximum self-consumption
+            - source: const
+              value: 2
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40031
+                  type: writesingle
+                  decode: uint16
+      # EVCC mode 2: hold
+      - case: 2
+        set:
+          source: sequence
+          set:
+            # Standby
+            - source: const
+              value: 1
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40031
+                  type: writesingle
+                  decode: uint16
+      # EVCC mode 3: charge
+      - case: 3
+        set:
+          source: sequence
+          set:
+            # Set maximum charge power
+            - source: const
+              value: {{ .maxchargepower }}
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40032
+                  type: writemultiple
+                  decode: uint32
+            # Command charging - grid first
+            - source: const
+              value: 3
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40031
+                  type: writesingle
+                  decode: uint16
+      # EVCC mode 4: holdcharge
+      - case: 4
+        set:
+          source: sequence
+          set:
+            # Set maximum charge power
+            - source: const
+              value: {{ .maxchargepower }}
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40032
+                  type: writemultiple
+                  decode: uint32
+            # Command charging - PV first
+            - source: const
+              value: 4
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40031
+                  type: writesingle
+                  decode: uint16
+      # EVCC mode 5: discharge
+      - case: 5
+        set:
+          source: sequence
+          set:
+            # Set maximum discharge power
+            - source: const
+              value: {{ .maxdischargepower }}
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40034
+                  type: writemultiple
+                  decode: uint32
+            # Command discharging - ESS first
+            - source: const
+              value: 6
+              set:
+                source: modbus
+                uri: {{ joinHostPort .host .port }}
+                id: 247
+                register:
+                  address: 40031
+                  type: writesingle
+                  decode: uint16
   {{- include "battery-params" . }}
   {{- end }}
